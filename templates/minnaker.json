@@ -1,0 +1,155 @@
+{
+"Description" : "Armory Spinnaker Instance",
+"Outputs": {
+    "InstanceID": {
+        "Description": "The Spinnaker instance id",
+        "Value": { "Ref": "spinnakerInstance" }
+    },
+    "InstanceIPAddress": {
+        "Description": "The Spinnaker instance ip address",
+        "Value": { "Ref": "spinnakerEIP" }
+    },
+},
+"Parameters": {
+    "AMI": {
+        "Description": "The Amazon Ubuntu AMI",
+        "Type": "String",
+        "Default": "ami-02701bcdc5509e57b"
+    },
+    "EBSVolumeSize": {
+        "Description": "The size of the EBS volume for Spinnaker",
+        "Type": "String",
+        "Default": "90"
+    },
+    "InstanceType": {
+        "AllowedValues": [
+            "t2.xlarge"
+        ],
+        "ConstraintDescription": "must be a valid EC2 instance type",
+        "Default": "t2.xlarge",
+        "Description": "EC2 instance type",
+        "Type": "String"
+    },
+    "KeyName": {
+        "Description" : "Name of an existing EC2 KeyPair to enable SSH access to NAT instances.",
+        "Type": "AWS::EC2::KeyPair::KeyName",
+        "ConstraintDescription" : "Must be the name of an existing EC2 KeyPair."        
+    },
+ },
+"Resources": {
+    "spinnakerVPC" : {
+        "Type" : "AWS::EC2::VPC",
+        "Properties" : {
+           "CidrBlock" : "10.100.0.0/16",
+           "EnableDnsSupport" : "true",
+           "EnableDnsHostnames" : "true",
+           "Tags" : [ {"Key" : "stack", "Value" : "spinnaker"} ]
+        }
+     },
+     "spinnakerSubnet" : {
+        "Type" : "AWS::EC2::Subnet",
+        "Properties" : {
+           "VpcId" : { "Ref" : "spinnakerVPC" },
+           "CidrBlock" : "10.100.10.0/24",
+           "AvailabilityZone" : "us-west-2c",
+           "Tags" : [ { "Key" : "stack", "Value" : "spinnaker" } ]
+        }
+     },
+    "spinnakerInternetGateway" : {
+        "Type" : "AWS::EC2::InternetGateway",
+        "Properties" : {
+          "Tags" : [ {"Key" : "stack", "Value" : "spinnaker"}]
+        }
+     },
+     "AttachGateway" : {
+        "Type" : "AWS::EC2::VPCGatewayAttachment",
+        "Properties" : {
+           "VpcId" : { "Ref" : "spinnakerVPC" },
+           "InternetGatewayId" : { "Ref" : "spinnakerInternetGateway" }
+         }
+     },
+     "spinnakerRouteTable" : {
+        "Type" : "AWS::EC2::RouteTable",
+        "Properties" : {
+           "VpcId" : { "Ref" : "spinnakerVPC" },
+           "Tags" : [ { "Key" : "stack", "Value" : "spinnaker" } ]
+        }
+     },
+     "spinnakerRoute" : {
+        "Type" : "AWS::EC2::Route",
+        "Properties" : {
+           "RouteTableId" : { "Ref" : "spinnakerRouteTable" },
+           "DestinationCidrBlock" : "0.0.0.0/0",
+           "GatewayId" : { "Ref" : "spinnakerInternetGateway" }
+        }
+     },
+     "spinnakerSubnetRouteTableAssociation" : {
+        "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties" : {
+           "SubnetId" : { "Ref" : "spinnakerSubnet" },
+           "RouteTableId" : { "Ref" : "spinnakerRouteTable" }
+        }
+     },
+    "spinnakerSecurityGroup": {
+        "Type": "AWS::EC2::SecurityGroup",
+        "Properties": {
+            "VpcId" : { "Ref" : "spinnakerVPC" },
+            "GroupDescription": "Allow SSH and HTTPS access",
+            "SecurityGroupIngress": [
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": "0.0.0.0/0"
+                },
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": "443",
+                    "ToPort": "443",
+                    "CidrIp": "0.0.0.0/0"
+                }
+            ]
+        }
+    },
+    "spinnakerEIP" : {
+        "Type" : "AWS::EC2::EIP",
+        "Properties" : {
+          "InstanceId" : { "Ref" : "spinnakerInstance" }
+        }
+    }, 
+    "spinnakerInstance": {
+        "Type" : "AWS::EC2::Instance",
+        "Properties": {
+            "BlockDeviceMappings" : [{
+                "DeviceName" : "/dev/sda1",
+                "Ebs" : {"VolumeSize" : {"Ref" : "EBSVolumeSize"}}
+            }],
+            "SecurityGroupIds": [{"Ref": "spinnakerSecurityGroup"}],
+            "KeyName": {"Ref": "KeyName" },
+            "ImageId": {"Ref": "AMI"},
+            "SubnetId": {"Ref": "spinnakerSubnet"},
+            "InstanceType": {"Ref": "InstanceType"},
+            "Tags": [
+                {"Key" : "Name", "Value" : "ArmorySpinnaker"}
+            ],
+             "UserData": {
+     "Fn::Base64": {
+       "Fn::Join": [
+         "",
+         [
+           "#!/bin/bash -x\n",
+           "apt-get update\n",
+           "cd /home/ubuntu\n",
+           "git clone https://github.com/armory/minnaker.git\n",
+           "cd minnaker\n",
+           "bin/build.sh\n",
+           "scripts/install.sh\n",
+           "\n"
+         ]
+       ]
+     }
+   }
+ }
+  }
+ }
+}
